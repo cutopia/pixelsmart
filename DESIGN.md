@@ -14,19 +14,20 @@ PixelSmart is a Ubuntu-based pixel art drawing application that combines traditi
     - Color Picker (eyedropper)
 - **Palette Management**: Ability to create, save, and load custom color palettes.
 - **Layer Support**: Basic layering system for non-destructive editing.
+- **Animation Support**: Frame-by-frame animation editor featuring 'Onion Skinning' (rendering previous/next frames as overlays to guide drawing).
 - **Export**: Save as PNG with options to upscale without blurring (Nearest Neighbor).
 
 ### 2.2 AI-Driven Tooling
 - **AI Pixelizer**: 
-    - Input: Source PNG image.
+    - Input: Source PNG image (can be high-resolution reference).
     - Parameters: Target resolution (e.g., 16x16, 32x32), styling/palette constraints.
     - Output: A pixelated version of the input image converted into a PixelSmart project.
 - **AI Background Remover**: 
     - Input: Icon/Sprite image.
     - Action: Automatically detect and remove background pixels to create transparency.
-- **AI Sprite Animator**: 
-    - Input: Single static icon/sprite.
-    - Action: Generate a sequence of animation frames (e.g., idle, walk) based on the source sprite's style and structure.
+- **Flexible AI Generation & Transformation**:
+    - Support for high-resolution reference images (style or subject matter) to guide generative models.
+    - Integrated workflow allowing seamless transition between AI generation, manual refinement, and further AI transformations.
 
 ## 3. Technical Architecture
 
@@ -41,9 +42,12 @@ PixelSmart is a Ubuntu-based pixel art drawing application that combines traditi
     - Interface via REST API to specialized models (e.g., Stable Diffusion with ControlNet for pixel art, or custom GANs).
     - Local inference via ONNX Runtime or PyTorch if hardware allows.
 
-### 3.3 Data Model
-- **Project Format**: `.pxsmart` (JSON wrapper containing layer data and metadata) or standard PNG with custom chunks.
-- **State Management**: Undo/Redo stack managing canvas state snapshots.
+### 3.3 Data Model & Storage
+- **Project Format**: `.pxsmart` files implemented as compressed ZIP archives containing:
+    - `manifest.json`: Metadata, palette information, and layer/frame hierarchy.
+    - `layers/*.png`: Individual raw PNG files for each layer and animation frame.
+- **State Management**: Undo/Redo stack implementing the **Command Pattern**. Instead of full state snapshots, only pixel deltas (coordinates and previous color values) are stored to minimize memory overhead.
+- **Canvas Implementation**: Custom `QWidget` utilizing `QImage` backends. Rendering uses Nearest Neighbor interpolation (`Qt.FastTransformation`) to ensure crisp pixels up to a maximum resolution of 512x512.
 
 ## 4. UI/UX Design
 - **Layout**: 
@@ -65,9 +69,9 @@ PixelSmart is a Ubuntu-based pixel art drawing application that combines traditi
 - Implement "AI Pixelizer" logic (Downsampling + Color quantization).
 - Implement Background Removal tool.
 
-### Phase 3: Advanced Animation & Polish
-- Build the Sprite Animation generator pipeline.
-- Implement animation preview player.
+### Phase 3: Animation & Polish
+- Implement animation timeline and 'Onion Skinning' logic.
+- Implement animation preview player (FPS control, looping).
 - UI refinement and Ubuntu-specific optimization (GTK theme integration).
 
 ## 6. Constraints & Considerations
