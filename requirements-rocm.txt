@@ -1,0 +1,10 @@
+# ROCm dependencies for AMD GPU acceleration (optional)
+# Uncomment and install if using AI features that benefit from GPU acceleration
+
+# PyTorch with ROCm support
+# torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/rocm6.2
+
+# Additional ML/AI libraries that work well with ROCm
+# transformers
+# diffusers
+# onnxruntime-rocm
