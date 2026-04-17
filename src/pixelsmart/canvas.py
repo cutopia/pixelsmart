@@ -100,6 +100,11 @@ class PixelSmartCanvas(QWidget):
         elif self.is_drawing:
             self.draw_at_mouse(event.position())
 
+    def mouseReleaseEvent(self, event: QMouseEvent):
+        if event.button() == Qt.LeftButton:
+            self.is_drawing = False
+            self.setCursor(Qt.ArrowCursor)
+
     def draw_at_mouse(self, pos):
         # Convert screen coordinates to canvas pixel coordinates
         pixel_x = int((pos.x() - self.offset.x()) / self.zoom_level)
