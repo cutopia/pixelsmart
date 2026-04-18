@@ -3,8 +3,10 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-                               QPushButton, QFrame, QLabel, QFileDialog, QMessageBox)
+                               QPushButton, QFrame, QLabel, QFileDialog, QMessageBox,
+                               QColorDialog)
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
 from pixelsmart.canvas import PixelSmartCanvas
 from pixelsmart.palette import PaletteManager
 from pixelsmart.fileio import ProjectIO
@@ -127,9 +129,15 @@ class MainWindow(QMainWindow):
         # Palette management buttons
         palette_btn_layout = QHBoxLayout()
         
+        pick_color_btn = QPushButton("Pick")
+        pick_color_btn.setFixedSize(25, 25)
+        pick_color_btn.setToolTip("Open color picker to add new color")
+        pick_color_btn.clicked.connect(self.pick_new_color)
+        palette_btn_layout.addWidget(pick_color_btn)
+        
         add_color_btn = QPushButton("+")
         add_color_btn.setFixedSize(25, 25)
-        add_color_btn.setToolTip("Add current color to palette")
+        add_color_btn.setToolTip("Add current canvas color to palette")
         add_color_btn.clicked.connect(self.add_current_color_to_palette)
         palette_btn_layout.addWidget(add_color_btn)
         
@@ -272,6 +280,21 @@ class MainWindow(QMainWindow):
             color = self.palette_manager.get_color(index)
             self.canvas.set_current_color(color)
             self.update_palette_display()
+    
+    def pick_new_color(self):
+        """Open color picker dialog to select and add a new color to palette"""
+        current_color = self.canvas.get_current_color()
+        initial_color = QColor(current_color.name() if hasattr(current_color, 'name') else '#000000')
+        
+        color_dialog = QColorDialog(initial_color, self)
+        color_dialog.setWindowTitle("Select New Palette Color")
+        color_dialog.setOption(QColorDialog.ShowAlphaChannel, False)
+        
+        if color_dialog.exec():
+            selected_color = color_dialog.currentColor()
+            if selected_color.isValid():
+                self.palette_manager.add_color(selected_color.name())
+                self.update_palette_display()
     
     def add_current_color_to_palette(self):
         """Add current canvas color to palette"""
