@@ -94,11 +94,58 @@ class MainWindow(QMainWindow):
         palette_label.setStyleSheet("color: white; font-weight: bold; margin-bottom: 10px;")
         right_layout.addWidget(palette_label)
         
-        # Placeholder for palette display
-        palette_frame = QFrame()
-        palette_frame.setMinimumHeight(150)
-        palette_frame.setStyleSheet("background-color: #2c2c2c; border: 1px solid #444;")
-        right_layout.addWidget(palette_frame)
+        # Palette display frame with color swatches
+        self.palette_frame = QFrame()
+        self.palette_frame.setMinimumHeight(200)
+        self.palette_frame.setStyleSheet("background-color: #2c2c2c; border: 1px solid #444;")
+        self.palette_layout = QVBoxLayout(self.palette_frame)
+        self.palette_layout.setContentsMargins(5, 5, 5, 5)
+        self.palette_layout.setAlignment(Qt.AlignTop)
+        
+        # Create color swatches grid (3 columns x 6 rows = 18 slots)
+        self.color_swatches = []
+        for i in range(18):  # Show up to 18 colors
+            swatch = QPushButton()
+            swatch.setFixedSize(30, 30)
+            swatch.setStyleSheet("border: 1px solid #555;")
+            swatch.clicked.connect(lambda checked, idx=i: self.select_palette_color(idx))
+            self.palette_layout.addWidget(swatch)
+            self.color_swatches.append(swatch)
+        
+        right_layout.addWidget(self.palette_frame)
+        
+        # Create color swatches grid (3 columns x 6 rows = 18 slots)
+        self.color_swatches = []
+        for i in range(18):  # Show up to 18 colors
+            swatch = QPushButton()
+            swatch.setFixedSize(30, 30)
+            swatch.setStyleSheet("border: 1px solid #555;")
+            swatch.clicked.connect(lambda checked, idx=i: self.select_palette_color(idx))
+            self.palette_layout.addWidget(swatch)
+            self.color_swatches.append(swatch)
+        
+        # Palette management buttons
+        palette_btn_layout = QHBoxLayout()
+        
+        add_color_btn = QPushButton("+")
+        add_color_btn.setFixedSize(25, 25)
+        add_color_btn.setToolTip("Add current color to palette")
+        add_color_btn.clicked.connect(self.add_current_color_to_palette)
+        palette_btn_layout.addWidget(add_color_btn)
+        
+        remove_color_btn = QPushButton("-")
+        remove_color_btn.setFixedSize(25, 25)
+        remove_color_btn.setToolTip("Remove selected color from palette")
+        remove_color_btn.clicked.connect(self.remove_selected_color_from_palette)
+        palette_btn_layout.addWidget(remove_color_btn)
+        
+        clear_palette_btn = QPushButton("Clear")
+        clear_palette_btn.setFixedWidth(60)
+        clear_palette_btn.setToolTip("Reset to default colors")
+        clear_palette_btn.clicked.connect(self.reset_palette)
+        palette_btn_layout.addWidget(clear_palette_btn)
+        
+        right_layout.addLayout(palette_btn_layout)
 
         # Center Area (Canvas + Bottom Bar)
         center_area = QWidget()
@@ -132,6 +179,10 @@ class MainWindow(QMainWindow):
         
         if reply == QMessageBox.Yes:
             self.canvas.image.fill(Qt.transparent)
+            # Reset palette to defaults on new project
+            from pixelsmart.palette import PaletteManager
+            self.palette_manager = PaletteManager()
+            self.update_palette_display()
             self.canvas.update()
     
     def open_project(self):
@@ -166,6 +217,10 @@ class MainWindow(QMainWindow):
                 if result.get("palette_manager"):
                     self.palette_manager = result["palette_manager"]
                 
+                # Sync canvas current color with palette
+                self.canvas.set_current_color(self.palette_manager.get_current_color())
+                
+                self.update_palette_display()
                 self.canvas.update()
             else:
                 QMessageBox.critical(self, "Error", f"Failed to open project: {result.get('error', 'Unknown error')}")
@@ -182,6 +237,11 @@ class MainWindow(QMainWindow):
             )
         
         if filepath:
+            # Sync canvas color to palette before saving
+            canvas_color = self.canvas.get_current_color()
+            if hasattr(canvas_color, 'name'):
+                self.palette_manager.set_current_color_obj(canvas_color)
+            
             success = self.file_io.save_project(self.canvas, filepath, self.palette_manager)
             
             if success:
@@ -206,6 +266,62 @@ class MainWindow(QMainWindow):
             else:
                 QMessageBox.critical(self, "Error", "Failed to export image")
 
+    def select_palette_color(self, index):
+        """Select a color from the palette"""
+        if index < len(self.palette_manager.get_all_colors()):
+            color = self.palette_manager.get_color(index)
+            self.canvas.set_current_color(color)
+            self.update_palette_display()
+    
+    def add_current_color_to_palette(self):
+        """Add current canvas color to palette"""
+        color = self.canvas.get_current_color()
+        if hasattr(color, 'name'):
+            self.palette_manager.add_color(color.name())
+        else:
+            self.palette_manager.add_color(str(color))
+        self.update_palette_display()
+    
+    def remove_selected_color_from_palette(self):
+        """Remove currently selected color from palette"""
+        current_color = self.canvas.get_current_color()
+        for i, color in enumerate(self.palette_manager.get_all_colors()):
+            if hasattr(current_color, 'name') and hasattr(color, 'name'):
+                if current_color.name() == color.name():
+                    self.palette_manager.remove_color(i)
+                    break
+        self.update_palette_display()
+    
+    def reset_palette(self):
+        """Reset palette to default colors"""
+        # Create new PaletteManager with defaults
+        from pixelsmart.palette import PaletteManager
+        self.palette_manager = PaletteManager()
+        self.update_palette_display()
+    
+    def update_palette_display(self):
+        """Update the visual display of palette colors"""
+        for i, swatch in enumerate(self.color_swatches):
+            if i < len(self.palette_manager.get_all_colors()):
+                color = self.palette_manager.get_color(i)
+                hex_color = color.name() if hasattr(color, 'name') else str(color)
+                swatch.setStyleSheet(f"background-color: {hex_color}; border: 2px solid #555;")
+                swatch.setToolTip(hex_color)
+            else:
+                swatch.setStyleSheet("background-color: #3c3c3c; border: 1px dashed #444;")
+                swatch.setToolTip("Empty slot")
+        
+        # Highlight current color
+        current_color = self.canvas.get_current_color()
+        if hasattr(current_color, 'name'):
+            current_hex = current_color.name()
+            for i, swatch in enumerate(self.color_swatches):
+                if i < len(self.palette_manager.get_all_colors()):
+                    color = self.palette_manager.get_color(i)
+                    hex_color = color.name() if hasattr(color, 'name') else str(color)
+                    if hex_color == current_hex:
+                        swatch.setStyleSheet(f"background-color: {hex_color}; border: 2px solid #00FF00;")
+    
     def select_tool(self, tool_name):
         """Select a drawing tool"""
         # Update canvas active tool
