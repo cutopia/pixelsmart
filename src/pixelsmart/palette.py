@@ -69,8 +69,17 @@ class PaletteManager:
     
     def save_to_file(self, filepath):
         """Save palette to a JSON file"""
+        def get_color_name(c):
+            # Handle Qt.transparent specially - it's transparent but .name() returns "#000000"
+            if c == Qt.transparent:
+                return '#00000000'  # ARGB format with alpha=0
+            elif hasattr(c, 'name') and callable(getattr(c, 'name', None)):
+                return c.name()
+            else:
+                return '#000000'
+        
         palette_data = {
-            "colors": [color.name() if hasattr(color, 'name') else '#000000' for color in self.colors],
+            "colors": [get_color_name(color) for color in self.colors],
             "current_index": self.current_index
         }
         with open(filepath, 'w') as f:
@@ -82,11 +91,23 @@ class PaletteManager:
             with open(filepath, 'r') as f:
                 palette_data = json.load(f)
             
-            self.colors = [QColor(c) for c in palette_data.get("colors", [])]
+            def load_color(c):
+                # Handle special transparent color saved as "#00000000"
+                if c == '#00000000':
+                    return Qt.transparent
+                else:
+                    return QColor(c)
+            
+            self.colors = [load_color(c) for c in palette_data.get("colors", [])]
             self.current_index = palette_data.get("current_index", 0)
             
-            # Validate colors
-            self.colors = [c for c in self.colors if c.isValid()]
+            # Validate colors (remove invalid ones except transparent)
+            def is_valid_color(c):
+                if c == Qt.transparent:
+                    return True
+                return hasattr(c, 'isValid') and c.isValid()
+            
+            self.colors = [c for c in self.colors if is_valid_color(c)]
             
             return True
         except (IOError, json.JSONDecodeError):
