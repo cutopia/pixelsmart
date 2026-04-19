@@ -12,6 +12,37 @@ from pixelsmart.palette import PaletteManager
 from pixelsmart.fileio import ProjectIO
 
 
+class SwatchButton(QPushButton):
+    """Custom QPushButton that handles single and double-click events"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.click_count = 0
+    
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.click_count += 1
+        super().mousePressEvent(event)
+    
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton and self.click_count == 1:
+            # Single click - emit clicked signal
+            self.clicked.emit()
+        self.click_count = 0
+        super().mouseReleaseEvent(event)
+    
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            # Reset click count on double click
+            self.click_count = 0
+            self.handleDoubleClicked()
+        super().mouseDoubleClickEvent(event)
+    
+    def handleDoubleClicked(self):
+        """Handle double-click - can be overridden or connected to slots"""
+        pass
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -108,11 +139,22 @@ class MainWindow(QMainWindow):
         # Create color swatches grid (6 columns x 4 rows = 24 slots)
         self.color_swatches = []
         for i in range(24):  # Show up to 24 colors
-            swatch = QPushButton()
+            swatch = SwatchButton()
             swatch.setFixedSize(30, 30)
+            swatch.index = i  # Store index for double-click event
             swatch.setStyleSheet("border: 1px dashed #555; background-color: #3c3c3c;")
-            swatch.setToolTip(f"Palette slot {i}")
-            swatch.clicked.connect(lambda checked, idx=i: self.select_palette_color(idx))
+            swatch.setToolTip(f"Palette slot {i}\nDouble-click to pick color")
+            
+            # Override handleDoubleClicked for this specific button
+            def make_handler(idx):
+                return lambda: self.pick_palette_color(idx)
+            
+            # Single click handler for selecting color
+            swatch.clicked.connect(lambda checked=False, idx=i: self.select_palette_color(idx))
+            
+            # Double click handler for picking new color
+            swatch.handleDoubleClicked = make_handler(i)
+            
             row = i // 6
             col = i % 6
             self.palette_layout.addWidget(swatch, row, col)
@@ -122,12 +164,6 @@ class MainWindow(QMainWindow):
         
         # Palette management buttons
         palette_btn_layout = QHBoxLayout()
-        
-        pick_color_btn = QPushButton("Pick")
-        pick_color_btn.setFixedSize(25, 25)
-        pick_color_btn.setToolTip("Open color picker to add new color")
-        pick_color_btn.clicked.connect(self.pick_new_color)
-        palette_btn_layout.addWidget(pick_color_btn)
         
         add_color_btn = QPushButton("+")
         add_color_btn.setFixedSize(25, 25)
@@ -269,7 +305,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "Error", "Failed to export image")
 
     def select_palette_color(self, index):
-        """Select a color from the palette or open picker for empty slots"""
+        """Select a color from the palette (single click)"""
         current_colors = self.palette_manager.colors
         
         if index < len(current_colors):
@@ -277,58 +313,33 @@ class MainWindow(QMainWindow):
             color = current_colors[index]
             self.canvas.set_current_color(color)
             self.palette_manager.set_current_index(index)
-        else:
-            # Empty slot - open color picker to fill it
-            initial_color = QColor('#000000')
-            color_dialog = QColorDialog(initial_color, self)
-            color_dialog.setWindowTitle(f"Select Color for Slot {index}")
-            color_dialog.setOption(QColorDialog.ShowAlphaChannel, False)
-            
-            if color_dialog.exec():
-                selected_color = color_dialog.currentColor()
-                if selected_color.isValid():
-                    # Add to palette at this index
-                    while len(current_colors) < index:
-                        current_colors.append(QColor('#000000'))  # Fill gaps with black
-                    if index == len(current_colors):
-                        current_colors.append(selected_color)
-                    else:
-                        current_colors[index] = selected_color
-                    self.palette_manager.set_current_index(index)
         
         self.update_palette_display()
     
-    def pick_new_color(self):
-        """Open color picker dialog to select and add a new color to palette"""
-        current_color = self.canvas.get_current_color()
-        initial_color = QColor(current_color.name() if hasattr(current_color, 'name') else '#000000')
+    def pick_palette_color(self, index):
+        """Open color picker dialog to select a new color for the specified palette slot"""
+        current_colors = self.palette_manager.colors
+        
+        # Set initial color based on existing color at this index, or black if empty
+        if index < len(current_colors):
+            existing_color = current_colors[index]
+            initial_color = QColor(existing_color.name() if hasattr(existing_color, 'name') else '#000000')
+        else:
+            initial_color = QColor('#000000')
         
         color_dialog = QColorDialog(initial_color, self)
-        color_dialog.setWindowTitle("Select Palette Color")
+        color_dialog.setWindowTitle(f"Select Color for Slot {index}")
         color_dialog.setOption(QColorDialog.ShowAlphaChannel, False)
         
         if color_dialog.exec():
             selected_color = color_dialog.currentColor()
             if selected_color.isValid():
-                # Find first empty slot or append to end
-                current_colors = self.palette_manager.colors
-                empty_index = None
-                for i in range(len(current_colors), 24):  # Max 24 slots
-                    if i >= len(current_colors):
-                        empty_index = i
-                        break
+                # Add or update the palette slot
+                while len(current_colors) <= index:
+                    current_colors.append(QColor('#000000'))  # Fill gaps with black
                 
-                if empty_index is not None:
-                    # Insert at empty slot or append
-                    if empty_index < len(current_colors):
-                        current_colors[empty_index] = selected_color
-                    else:
-                        self.palette_manager.add_color(selected_color)
-                    self.palette_manager.set_current_index(empty_index)
-                else:
-                    # Palette full, add to end and update selection
-                    self.palette_manager.add_color(selected_color)
-                    self.palette_manager.set_current_index(len(self.palette_manager.colors) - 1)
+                current_colors[index] = selected_color
+                self.palette_manager.set_current_index(index)
                 
                 self.update_palette_display()
     
