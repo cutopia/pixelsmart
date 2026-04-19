@@ -4,9 +4,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                                QPushButton, QFrame, QLabel, QFileDialog, QMessageBox,
-                               QColorDialog)
+                               QColorDialog, QGridLayout)
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, Qt as QtGuiQt
 from pixelsmart.canvas import PixelSmartCanvas
 from pixelsmart.palette import PaletteManager
 from pixelsmart.fileio import ProjectIO
@@ -96,35 +96,29 @@ class MainWindow(QMainWindow):
         palette_label.setStyleSheet("color: white; font-weight: bold; margin-bottom: 10px;")
         right_layout.addWidget(palette_label)
         
-        # Palette display frame with color swatches
+        # Palette display frame with color swatches (24 slots in 6 columns x 4 rows grid)
         self.palette_frame = QFrame()
-        self.palette_frame.setMinimumHeight(200)
+        self.palette_frame.setMinimumHeight(180)
         self.palette_frame.setStyleSheet("background-color: #2c2c2c; border: 1px solid #444;")
-        self.palette_layout = QVBoxLayout(self.palette_frame)
+        self.palette_layout = QGridLayout(self.palette_frame)
         self.palette_layout.setContentsMargins(5, 5, 5, 5)
-        self.palette_layout.setAlignment(Qt.AlignTop)
+        self.palette_layout.setAlignment(QtGuiQt.AlignTop)
+        self.palette_layout.setSpacing(5)
         
-        # Create color swatches grid (3 columns x 6 rows = 18 slots)
+        # Create color swatches grid (6 columns x 4 rows = 24 slots)
         self.color_swatches = []
-        for i in range(18):  # Show up to 18 colors
+        for i in range(24):  # Show up to 24 colors
             swatch = QPushButton()
             swatch.setFixedSize(30, 30)
-            swatch.setStyleSheet("border: 1px solid #555;")
+            swatch.setStyleSheet("border: 1px dashed #555; background-color: #3c3c3c;")
+            swatch.setToolTip(f"Palette slot {i}")
             swatch.clicked.connect(lambda checked, idx=i: self.select_palette_color(idx))
-            self.palette_layout.addWidget(swatch)
+            row = i // 6
+            col = i % 6
+            self.palette_layout.addWidget(swatch, row, col)
             self.color_swatches.append(swatch)
         
         right_layout.addWidget(self.palette_frame)
-        
-        # Create color swatches grid (3 columns x 6 rows = 18 slots)
-        self.color_swatches = []
-        for i in range(18):  # Show up to 18 colors
-            swatch = QPushButton()
-            swatch.setFixedSize(30, 30)
-            swatch.setStyleSheet("border: 1px solid #555;")
-            swatch.clicked.connect(lambda checked, idx=i: self.select_palette_color(idx))
-            self.palette_layout.addWidget(swatch)
-            self.color_swatches.append(swatch)
         
         # Palette management buttons
         palette_btn_layout = QHBoxLayout()
@@ -275,11 +269,34 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "Error", "Failed to export image")
 
     def select_palette_color(self, index):
-        """Select a color from the palette"""
-        if index < len(self.palette_manager.get_all_colors()):
-            color = self.palette_manager.get_color(index)
+        """Select a color from the palette or open picker for empty slots"""
+        current_colors = self.palette_manager.colors
+        
+        if index < len(current_colors):
+            # Existing color - select it
+            color = current_colors[index]
             self.canvas.set_current_color(color)
-            self.update_palette_display()
+            self.palette_manager.set_current_index(index)
+        else:
+            # Empty slot - open color picker to fill it
+            initial_color = QColor('#000000')
+            color_dialog = QColorDialog(initial_color, self)
+            color_dialog.setWindowTitle(f"Select Color for Slot {index}")
+            color_dialog.setOption(QColorDialog.ShowAlphaChannel, False)
+            
+            if color_dialog.exec():
+                selected_color = color_dialog.currentColor()
+                if selected_color.isValid():
+                    # Add to palette at this index
+                    while len(current_colors) < index:
+                        current_colors.append(QColor('#000000'))  # Fill gaps with black
+                    if index == len(current_colors):
+                        current_colors.append(selected_color)
+                    else:
+                        current_colors[index] = selected_color
+                    self.palette_manager.set_current_index(index)
+        
+        self.update_palette_display()
     
     def pick_new_color(self):
         """Open color picker dialog to select and add a new color to palette"""
@@ -287,32 +304,78 @@ class MainWindow(QMainWindow):
         initial_color = QColor(current_color.name() if hasattr(current_color, 'name') else '#000000')
         
         color_dialog = QColorDialog(initial_color, self)
-        color_dialog.setWindowTitle("Select New Palette Color")
+        color_dialog.setWindowTitle("Select Palette Color")
         color_dialog.setOption(QColorDialog.ShowAlphaChannel, False)
         
         if color_dialog.exec():
             selected_color = color_dialog.currentColor()
             if selected_color.isValid():
-                self.palette_manager.add_color(selected_color.name())
+                # Find first empty slot or append to end
+                current_colors = self.palette_manager.colors
+                empty_index = None
+                for i in range(len(current_colors), 24):  # Max 24 slots
+                    if i >= len(current_colors):
+                        empty_index = i
+                        break
+                
+                if empty_index is not None:
+                    # Insert at empty slot or append
+                    if empty_index < len(current_colors):
+                        current_colors[empty_index] = selected_color
+                    else:
+                        self.palette_manager.add_color(selected_color)
+                    self.palette_manager.set_current_index(empty_index)
+                else:
+                    # Palette full, add to end and update selection
+                    self.palette_manager.add_color(selected_color)
+                    self.palette_manager.set_current_index(len(self.palette_manager.colors) - 1)
+                
                 self.update_palette_display()
     
     def add_current_color_to_palette(self):
-        """Add current canvas color to palette"""
+        """Add current canvas color to palette at first empty slot or append"""
         color = self.canvas.get_current_color()
-        if hasattr(color, 'name'):
-            self.palette_manager.add_color(color.name())
+        if not hasattr(color, 'name'):
+            color_str = str(color)
         else:
-            self.palette_manager.add_color(str(color))
+            color_str = color.name()
+        
+        # Find first empty slot (None or transparent placeholder)
+        current_colors = self.palette_manager.colors
+        empty_index = None
+        for i in range(len(current_colors)):
+            c = current_colors[i]
+            if not hasattr(c, 'name') or c.name() == '#000000' and i > 0:
+                # Check if it's actually empty/placeholder
+                if i >= len(self.palette_manager.get_all_colors()):
+                    empty_index = i
+                    break
+        
+        if empty_index is not None:
+            current_colors[empty_index] = QColor(color_str)
+            self.palette_manager.set_current_index(empty_index)
+        else:
+            # Append to end (max 24 slots)
+            if len(current_colors) < 24:
+                self.palette_manager.add_color(color_str)
+                self.palette_manager.set_current_index(len(current_colors))
+        
         self.update_palette_display()
     
     def remove_selected_color_from_palette(self):
         """Remove currently selected color from palette"""
-        current_color = self.canvas.get_current_color()
-        for i, color in enumerate(self.palette_manager.get_all_colors()):
-            if hasattr(current_color, 'name') and hasattr(color, 'name'):
-                if current_color.name() == color.name():
-                    self.palette_manager.remove_color(i)
-                    break
+        current_index = self.palette_manager.current_index
+        
+        # Don't allow removing the transparent slot (index 0) or if only 16 colors exist
+        if current_index == 0:
+            return  # Can't remove transparent slot
+            
+        if len(self.palette_manager.colors) > 16:
+            del self.palette_manager.colors[current_index]
+            # Adjust current index if needed
+            if self.palette_manager.current_index >= len(self.palette_manager.colors):
+                self.palette_manager.current_index = len(self.palette_manager.colors) - 1
+        
         self.update_palette_display()
     
     def reset_palette(self):
@@ -324,26 +387,42 @@ class MainWindow(QMainWindow):
     
     def update_palette_display(self):
         """Update the visual display of palette colors"""
+        current_index = self.palette_manager.current_index
+        
         for i, swatch in enumerate(self.color_swatches):
-            if i < len(self.palette_manager.get_all_colors()):
+            if i < len(self.palette_manager.colors):
                 color = self.palette_manager.get_color(i)
+                # Convert Qt.GlobalColor enums to QColor to avoid .name() issues
+                if isinstance(color, QtGuiQt.GlobalColor):
+                    color = QColor(color)
                 hex_color = color.name() if hasattr(color, 'name') else str(color)
-                swatch.setStyleSheet(f"background-color: {hex_color}; border: 2px solid #555;")
+                
+                # Check if this is the currently selected color
+                if i == current_index:
+                    swatch.setStyleSheet(f"background-color: {hex_color}; border: 3px solid #00FF00;")
+                else:
+                    swatch.setStyleSheet(f"background-color: {hex_color}; border: 2px solid #555;")
+                
                 swatch.setToolTip(hex_color)
             else:
-                swatch.setStyleSheet("background-color: #3c3c3c; border: 1px dashed #444;")
-                swatch.setToolTip("Empty slot")
+                # Empty slot - show as dashed placeholder
+                swatch.setStyleSheet("background-color: #3c3c3c; border: 1px dashed #555;")
+                swatch.setToolTip(f"Empty slot {i} (click to add color)")
         
-        # Highlight current color
-        current_color = self.canvas.get_current_color()
-        if hasattr(current_color, 'name'):
-            current_hex = current_color.name()
+        # If current color is not in palette, highlight it on the canvas
+        canvas_color = self.canvas.get_current_color()
+        if hasattr(canvas_color, 'name'):
+            canvas_hex = canvas_color.name()
             for i, swatch in enumerate(self.color_swatches):
-                if i < len(self.palette_manager.get_all_colors()):
+                if i < len(self.palette_manager.colors):
                     color = self.palette_manager.get_color(i)
+                    # Convert Qt.GlobalColor enums to QColor to avoid .name() issues
+                    if isinstance(color, QtGuiQt.GlobalColor):
+                        color = QColor(color)
                     hex_color = color.name() if hasattr(color, 'name') else str(color)
-                    if hex_color == current_hex:
-                        swatch.setStyleSheet(f"background-color: {hex_color}; border: 2px solid #00FF00;")
+                    if hex_color == canvas_hex and i != current_index:
+                        # Canvas color matches a palette entry but it's not selected
+                        swatch.setStyleSheet(f"background-color: {hex_color}; border: 2px solid #FFFF00;")
     
     def select_tool(self, tool_name):
         """Select a drawing tool"""

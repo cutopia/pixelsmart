@@ -1,13 +1,15 @@
 """Palette management module for PixelSmart"""
 import json
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, Qt
 
 
 class PaletteManager:
     """Manages color palettes for the pixel art editor"""
     
     def __init__(self):
+        # Initialize with 24 slots: 1 transparent + 15 default colors + 8 empty slots
         self.colors = [
+            Qt.transparent,     # Slot 0: Always transparent
             QColor("#000000"),  # Black
             QColor("#FFFFFF"),  # White
             QColor("#FF0000"),  # Red
@@ -23,16 +25,24 @@ class PaletteManager:
             QColor("#808000"),  # Dark Yellow
             QColor("#800080"),  # Dark Magenta
             QColor("#008080"),  # Dark Cyan
-            QColor("#FFFFFF")   # Light Gray
         ]
-        self.current_index = 0
+        self.current_index = 1  # Start with black as default (index 1, slot 0 is transparent)
     
     def add_color(self, color):
-        """Add a new color to the palette"""
+        """Add a new color to the palette (append to end)"""
         if isinstance(color, str):
             color = QColor(color)
         if color.isValid() and color not in self.colors:
             self.colors.append(color)
+    
+    def set_current_index(self, index):
+        """Set the current color by palette index"""
+        if 0 <= index < len(self.colors):
+            self.current_index = index
+    
+    def get_current_color(self):
+        """Get the currently selected color"""
+        return self.get_color(self.current_index)
     
     def remove_color(self, index):
         """Remove a color from the palette by index"""
@@ -45,18 +55,9 @@ class PaletteManager:
         """Get a color from the palette by index"""
         if 0 <= index < len(self.colors):
             return self.colors[index]
-        return QColor("#000000")
+        return Qt.transparent
     
-    def set_current_color(self, index):
-        """Set the current color by palette index"""
-        if 0 <= index < len(self.colors):
-            self.current_index = index
-            return self.colors[index]
-        return None
-    
-    def get_current_color(self):
-        """Get the currently selected color"""
-        return self.get_color(self.current_index)
+
     
     def set_current_color_obj(self, color):
         """Set current color to an exact match if exists, or add new"""
@@ -69,7 +70,7 @@ class PaletteManager:
     def save_to_file(self, filepath):
         """Save palette to a JSON file"""
         palette_data = {
-            "colors": [color.name() for color in self.colors],
+            "colors": [color.name() if hasattr(color, 'name') else '#000000' for color in self.colors],
             "current_index": self.current_index
         }
         with open(filepath, 'w') as f:
