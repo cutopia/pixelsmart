@@ -4,12 +4,24 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                                QPushButton, QFrame, QLabel, QFileDialog, QMessageBox,
-                               QColorDialog, QGridLayout)
+                               QColorDialog, QGridLayout, QLineEdit, QSlider, QCheckBox)
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, Qt as QtGuiQt
 from pixelsmart.canvas import PixelSmartCanvas
 from pixelsmart.palette import PaletteManager
 from pixelsmart.fileio import ProjectIO
+
+# Import AI modules
+try:
+    from pixelsmart.style_analysis import StyleAnalyzer
+    from pixelsmart.subject_processor import SubjectProcessor
+    from pixelsmart.icon_generator import IconGenerator
+    from pixelsmart.background_remover import BackgroundRemover
+    HAS_AI_MODULES = True
+except ImportError as e:
+    # AI modules not available, disable AI features
+    print(f"Warning: Could not import AI modules: {e}")
+    HAS_AI_MODULES = False
 
 
 class SwatchButton(QPushButton):
@@ -52,6 +64,28 @@ class MainWindow(QMainWindow):
         # Initialize managers
         self.palette_manager = PaletteManager()
         self.file_io = ProjectIO()
+        
+        # Initialize AI components (if available)
+        if HAS_AI_MODULES:
+            self.style_analyzer = StyleAnalyzer()
+            self.subject_processor = SubjectProcessor()
+            self.icon_generator = IconGenerator()
+            self.background_remover = BackgroundRemover()
+            
+            # Style transfer state
+            self.style_image_path = None
+            self.subject_image_path = None
+            self.generated_icon = None
+            self.palette_locked = False
+        else:
+            self.style_analyzer = None
+            self.subject_processor = None
+            self.icon_generator = None
+            self.background_remover = None
+            self.style_image_path = None
+            self.subject_image_path = None
+            self.generated_icon = None
+            self.palette_locked = False
 
         # Central Widget and Main Layout
         central_widget = QWidget()
@@ -114,12 +148,86 @@ class MainWindow(QMainWindow):
         right_layout.setContentsMargins(10, 10, 10, 10)
         right_layout.setAlignment(Qt.AlignTop)
 
+        # AI Tools Section
+        ai_section = QFrame()
+        ai_section.setStyleSheet("background-color: #2c2c2c; border-radius: 5px;")
+        ai_layout = QVBoxLayout(ai_section)
+        ai_layout.setContentsMargins(10, 10, 10, 10)
+        
         ai_label = QLabel("AI Tools")
         ai_label.setStyleSheet("color: white; font-weight: bold; margin-bottom: 10px;")
-        right_layout.addWidget(ai_label)
+        ai_layout.addWidget(ai_label)
         
-        right_layout.addWidget(QPushButton("AI Pixelizer"))
-        right_layout.addWidget(QPushButton("Background Remover"))
+        # Style Transfer Section
+        style_transfer_section = QFrame()
+        style_transfer_section.setStyleSheet("background-color: #222; border-radius: 3px;")
+        style_transfer_layout = QVBoxLayout(style_transfer_section)
+        style_transfer_layout.setContentsMargins(5, 5, 5, 5)
+        
+        style_label = QLabel("Style Transfer")
+        style_label.setStyleSheet("color: #aaa; font-size: 10px; margin-bottom: 5px;")
+        style_transfer_layout.addWidget(style_label)
+        
+        # Style image upload
+        self.style_upload_btn = QPushButton("Upload Style Image...")
+        self.style_upload_btn.setFixedHeight(25)
+        self.style_upload_btn.clicked.connect(self.upload_style_image)
+        style_transfer_layout.addWidget(self.style_upload_btn)
+        
+        self.style_preview_label = QLabel("No style image")
+        self.style_preview_label.setStyleSheet("color: #666; font-size: 9px;")
+        self.style_preview_label.setFixedHeight(20)
+        style_transfer_layout.addWidget(self.style_preview_label)
+        
+        # Subject image upload
+        self.subject_upload_btn = QPushButton("Upload Subject Image...")
+        self.subject_upload_btn.setFixedHeight(25)
+        self.subject_upload_btn.clicked.connect(self.upload_subject_image)
+        style_transfer_layout.addWidget(self.subject_upload_btn)
+        
+        self.subject_preview_label = QLabel("No subject image")
+        self.subject_preview_label.setStyleSheet("color: #666; font-size: 9px;")
+        self.subject_preview_label.setFixedHeight(20)
+        style_transfer_layout.addWidget(self.subject_preview_label)
+        
+        # Output resolution selector
+        resolution_layout = QHBoxLayout()
+        resolution_layout.addWidget(QLabel("Output:"))
+        self.resolution_combo = QFrame()
+        self.resolution_combo.setStyleSheet("background-color: white; border-radius: 3px;")
+        resolution_layout.addWidget(self.resolution_combo)
+        style_transfer_layout.addLayout(resolution_layout)
+        
+        # Style strength slider
+        strength_layout = QHBoxLayout()
+        strength_layout.addWidget(QLabel("Style Strength:"))
+        self.style_strength_slider = QSlider(Qt.Horizontal)
+        self.style_strength_slider.setRange(0, 100)
+        self.style_strength_slider.setValue(70)
+        self.style_strength_slider.setFixedWidth(120)
+        strength_layout.addWidget(self.style_strength_slider)
+        style_transfer_layout.addLayout(strength_layout)
+        
+        # Palette lock checkbox
+        self.palette_lock_checkbox = QCheckBox("Lock Current Palette")
+        self.palette_lock_checkbox.setChecked(False)
+        self.palette_lock_checkbox.stateChanged.connect(self.toggle_palette_lock)
+        style_transfer_layout.addWidget(self.palette_lock_checkbox)
+        
+        # Generate button
+        self.generate_btn = QPushButton("Generate Icon")
+        self.generate_btn.setFixedHeight(30)
+        self.generate_btn.setStyleSheet("background-color: #4CAF50; color: white; border-radius: 3px;")
+        self.generate_btn.clicked.connect(self.generate_icon)
+        style_transfer_layout.addWidget(self.generate_btn)
+        
+        ai_layout.addWidget(style_transfer_section)
+        
+        # Background Remover button
+        bg_remove_btn = QPushButton("Background Remover")
+        bg_remove_btn.setFixedHeight(25)
+        bg_remove_btn.clicked.connect(self.remove_background)
+        right_layout.addWidget(bg_remove_btn)
         
         right_layout.addSpacing(20)
         
@@ -457,6 +565,155 @@ class MainWindow(QMainWindow):
             self.setCursor(Qt.CrossCursor)
         else:
             self.setCursor(Qt.ArrowCursor)
+
+    def upload_style_image(self):
+        """Upload a style image for analysis"""
+        if not HAS_AI_MODULES:
+            QMessageBox.information(self, "AI Not Available", 
+                                  "Style Transfer requires AI modules that are not installed.")
+            return
+        
+        filepath, _ = QFileDialog.getOpenFileName(
+            self, "Select Style Image", "", "Images (*.png *.jpg *.jpeg *.bmp);;All Files (*)"
+        )
+        
+        if filepath:
+            self.style_image_path = filepath
+            self.style_preview_label.setText(f"Style: {os.path.basename(filepath)}")
+            
+            # Analyze style (mock for now)
+            try:
+                result = self.style_analyzer.analyze_style(filepath, use_ai=False)
+                self.style_description = result.get("description", "Pixel art style")
+                self.extracted_palette = result.get("palette", [])
+                
+                if not self.palette_locked and self.extracted_palette:
+                    # Update palette with extracted colors
+                    for i, color_hex in enumerate(self.extracted_palette[:16]):
+                        if i < len(self.palette_manager.colors):
+                            self.palette_manager.colors[i] = QColor(color_hex)
+            
+            except Exception as e:
+                QMessageBox.warning(self, "Style Analysis Warning", 
+                                  f"Could not analyze style: {str(e)}")
+
+    def upload_subject_image(self):
+        """Upload a subject image for icon generation"""
+        if not HAS_AI_MODULES:
+            return
+        
+        filepath, _ = QFileDialog.getOpenFileName(
+            self, "Select Subject Image", "", "Images (*.png *.jpg *.jpeg *.bmp);;All Files (*)"
+        )
+        
+        if filepath:
+            self.subject_image_path = filepath
+            self.subject_preview_label.setText(f"Subject: {os.path.basename(filepath)}")
+
+    def toggle_palette_lock(self, state):
+        """Toggle palette lock state"""
+        self.palette_locked = (state == Qt.Checked)
+
+    def generate_icon(self):
+        """Generate a pixel art icon using style transfer"""
+        if not HAS_AI_MODULES:
+            QMessageBox.information(self, "AI Not Available", 
+                                  "Style Transfer requires AI modules that are not installed.")
+            return
+        
+        if not self.style_image_path or not self.subject_image_path:
+            QMessageBox.warning(self, "Missing Images",
+                              "Please upload both a style image and a subject image.")
+            return
+        
+        # Get generation parameters
+        target_size = (64, 64)  # Default size
+        style_strength = self.style_strength_slider.value() / 100.0
+        
+        # Show progress dialog
+        progress = QMessageBox(self)
+        progress.setWindowTitle("Generating Icon")
+        progress.setText("AI is generating your icon...")
+        progress.setStandardButtons(QMessageBox.NoButton)
+        progress.show()
+        
+        QApplication.processEvents()
+        
+        try:
+            # Sample subject to target size
+            sampled_subject = self.subject_processor.sample_subject(
+                self.subject_image_path, target_size
+            )
+            
+            # Generate icon using AI (mock implementation for now)
+            prompt = f"{self.style_description}, pixel art version of this image"
+            generated = self.icon_generator.generate_icon(
+                prompt,
+                None,  # Would use base_image_path in full implementation
+                target_size,
+                style_strength
+            )
+            
+            # Apply palette constraint if not locked
+            if not self.palette_locked and hasattr(self, 'extracted_palette'):
+                generated = self.icon_generator.constrain_to_palette(
+                    generated, self.extracted_palette[:16]
+                )
+            
+            # Update canvas with result
+            self.canvas.image = generated
+            self.canvas.update()
+            
+            progress.close()
+            QMessageBox.information(self, "Success", 
+                                  f"Icon generated successfully!\nSize: {target_size[0]}x{target_size[1]}")
+            
+        except Exception as e:
+            progress.close()
+            QMessageBox.critical(self, "Generation Error",
+                               f"Failed to generate icon: {str(e)}")
+
+    def remove_background(self):
+        """Remove background from current canvas or selected image"""
+        if not HAS_AI_MODULES:
+            return
+        
+        # For now, use heuristic background removal
+        try:
+            width = self.canvas.image.width()
+            height = self.canvas.image.height()
+            
+            # Create a copy of the image
+            result = QImage(width, height, QImage.Format_ARGB32)
+            result.fill(Qt.transparent)
+            
+            # Heuristic: keep center region, remove edges
+            margin_x = int(width * 0.1)
+            margin_y = int(height * 0.1)
+            
+            for y in range(height):
+                for x in range(width):
+                    pixel = self.canvas.image.pixel(x, y)
+                    
+                    # Check if pixel is near edge
+                    is_edge = (
+                        x < margin_x or 
+                        x >= width - margin_x or
+                        y < margin_y or 
+                        y >= height - margin_y
+                    )
+                    
+                    if not is_edge:
+                        result.setPixel(x, y, pixel)
+            
+            self.canvas.image = result
+            self.canvas.update()
+            QMessageBox.information(self, "Success", "Background removal applied (heuristic)")
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error",
+                               f"Failed to remove background: {str(e)}")
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

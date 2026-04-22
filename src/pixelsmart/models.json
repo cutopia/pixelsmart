@@ -1,0 +1,7 @@
+{
+  "api_endpoint": "http://localhost:1234/v1",
+  "vision_model": "qwen-vl",
+  "generation_model": "sdxl-base",
+  "segmentation_model": "sam",
+  "timeout_seconds": 60
+}
