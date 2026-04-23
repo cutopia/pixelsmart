@@ -26,7 +26,7 @@ PixelSmart requires three categories of AI models to support its creative workfl
 | **Generation Model** | Create new pixel art from prompts and base images | Icon generation, style transfer |
 | **Segmentation Model** | Detect foreground/background separation | Background removal, transparency creation |
 
-All models are accessed via REST API endpoints (default: LM Studio) with fallback options for local inference.
+All models are loaded directly using PyTorch (with ROCm support for AMD GPUs) or accessed via REST API endpoints with fallback options for local inference.
 
 ---
 
@@ -207,25 +207,56 @@ class SegmentationModel:
 
 | Model | Strengths | Weaknesses | Hosting |
 |-------|-----------|------------|---------|
-| **Stable Diffusion XL Base + ControlNet** | High quality, pixel-perfect control | Large (~7GB), slower generation | LM Studio, local PyTorch |
-| **Stable Diffusion XL Turbo** | Fast generation, good quality | Less detailed than base | LM Studio, local PyTorch |
-| **PixelArt-Specific SD Models** | Trained specifically on pixel art | Limited variety of styles | Custom hosting |
+| **Stable Diffusion XL Base + ControlNet** | High quality, pixel-perfect control | Large (~7GB), slower generation | Local PyTorch (ROCm) |
+| **Stable Diffusion XL Turbo** | Fast generation, good quality | Less detailed than base | Local PyTorch (ROCm) |
+| **PixelArt-Specific SD Models** | Trained specifically on pixel art | Limited variety of styles | Local PyTorch (ROCm) |
 | **DALL-E 3 / Midjourney** | Excellent quality, easy to use | API costs, no local control | Cloud API |
 
 ### Segmentation Models
 
 | Model | Strengths | Weaknesses | Hosting |
 |-------|-----------|------------|---------|
-| **SAM (Segment Anything)** | Highly accurate, flexible | Large (~400MB), slower | LM Studio, local PyTorch |
-| **MobileSAM** | Lightweight, fast | Less accurate on complex images | LM Studio, local PyTorch |
-| **U²-Net** | Good for foreground extraction | Requires training data | Local PyTorch |
+| **SAM (Segment Anything)** | Highly accurate, flexible | Large (~400MB), slower | Local PyTorch (ROCm) |
+| **MobileSAM** | Lightweight, fast | Less accurate on complex images | Local PyTorch (ROCm) |
+| **U²-Net** | Good for foreground extraction | Requires training data | Local PyTorch (ROCm) |
 | **BackgroundRemoval API** | Easy integration, reliable | API costs | Cloud API |
 
 ---
 
 ## Hosting Requirements
 
-### Default: LM Studio (Recommended)
+### Default: Local PyTorch with ROCm Support (Recommended)
+
+The generative art and segmentation models are loaded directly using PyTorch with ROCm support for AMD GPU acceleration.
+
+**Configuration**:
+```json
+{
+  "model_backend": "pytorch",
+  "vision_model": "qwen-vl",
+  "generation_model": "sdxl-base",
+  "segmentation_model": "sam"
+}
+```
+
+**Setup Steps**:
+1. Install PyTorch with ROCm support: `pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/rocm6.0`
+2. Download required models from Hugging Face or other sources:
+   - Vision: `qwen-vl` or `gemma-vision`
+   - Generation: `sdxl-base` with ControlNet extension, or `sdxl-turbo`
+   - Segmentation: `sam` or `mobile-sam`
+3. Place models in the appropriate directory
+4. The application will automatically detect and load models on startup
+
+**Advantages**:
+- Free and open source
+- No API costs
+- Runs entirely locally with AMD GPU acceleration
+- Full control over model loading and inference
+
+### Alternative: LM Studio (Vision Models Only)
+
+LM Studio can be used for vision models only, as it doesn't support generative art models:
 
 **Configuration**:
 ```json
@@ -240,35 +271,11 @@ class SegmentationModel:
 **Setup Steps**:
 1. Download and install [LM Studio](https://lmstudio.ai/)
 2. Open LM Studio and navigate to the Model Catalog
-3. Search for and download required models:
-   - Vision: `qwen-vl` or `gemma-vision`
-   - Generation: `sdxl-base` with ControlNet extension, or `sdxl-turbo`
-   - Segmentation: `sam` or `mobile-sam`
+3. Search for and download vision models only: `qwen-vl` or `gemma-vision`
 4. Start the local server (default port 1234)
 5. Configure PixelSmart to use `http://localhost:1234/v1`
 
-**Advantages**:
-- Free and open source
-- No API costs
-- Runs entirely locally
-- Easy model switching via UI
-
-### Alternative: Ollama
-
-**Configuration**:
-```json
-{
-  "api_endpoint": "http://localhost:11434",
-  "vision_model": "gemma-vision",
-  "generation_model": "stable-diffusion-xl-base",
-  "segmentation_model": "mobile-sam"
-}
-```
-
-**Setup Steps**:
-1. Install [Ollama](https://ollama.com/)
-2. Pull required models: `ollama pull gemma-vl`, etc.
-3. Configure PixelSmart to use Ollama endpoint
+**Note**: Generation and segmentation models must still be loaded via PyTorch/ROCm as LM Studio doesn't support these model types.
 
 ### Alternative: Local PyTorch/ONNX Runtime
 
@@ -353,7 +360,7 @@ For development without local models:
 
 ```json
 {
-  "api_endpoint": "http://localhost:1234/v1",
+  "model_backend": "pytorch",
   "vision_model": "qwen-vl",
   "generation_model": "sdxl-base",
   "segmentation_model": "sam",
@@ -372,12 +379,12 @@ All model operations must handle these error cases:
 ```python
 try:
     result = await vision_model.analyze_style(image_path)
-except NetworkError as e:
-    show_error_dialog("Cannot connect to AI model server. Please ensure LM Studio is running.")
+except ModelLoadError as e:
+    show_error_dialog(f"Failed to load model: {str(e)}. Ensure PyTorch with ROCm is installed.")
 except ModelNotFoundError as e:
-    show_error_dialog(f"Model '{model_name}' not found. Install it in LM Studio.")
+    show_error_dialog(f"Model '{model_name}' not found. Download the model files and place them in the models directory.")
 except GenerationTimeoutError as e:
-    show_error_dialog("AI generation timed out. Try a simpler prompt or larger timeout setting.")
+    show_error_dialog("AI generation timed out. Try a simpler prompt or ensure your GPU has sufficient VRAM.")
 ```
 
 ### Progress Reporting
@@ -410,9 +417,9 @@ The system must support runtime model switching without restart:
 ### Testing Strategy
 
 1. **Unit Tests**: Mock model responses to test UI flow
-2. **Integration Tests**: Test with real LM Studio endpoints
+2. **Integration Tests**: Test with PyTorch models loaded locally
 3. **Model Compatibility Tests**: Verify all three model categories work together
-4. **Performance Tests**: Ensure operations complete within timeout limits
+4. **Performance Tests**: Ensure operations complete within timeout limits and GPU memory is managed properly
 
 ---
 
