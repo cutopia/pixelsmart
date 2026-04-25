@@ -39,8 +39,9 @@ PixelSmart is a Ubuntu-based pixel art drawing application that combines traditi
 ### 3.2 Image Processing Stack
 - **Core Manipulation**: Pillow (PIL) or OpenCV.
 - **AI Integration**: 
-    - Interface via REST API to specialized models (e.g., Stable Diffusion with ControlNet for pixel art, or custom GANs).
-    - Local inference via ONNX Runtime or PyTorch if hardware allows.
+    - Local inference using Google Gemma 4E4B vision model from Hugging Face Transformers
+    - Uses `transformers` library with PyTorch backend
+    - Supports image understanding and text generation capabilities
 
 ### 3.3 Data Model & Storage
 - **Project Format**: `.pxsmart` files implemented as compressed ZIP archives containing:

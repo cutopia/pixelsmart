@@ -5,11 +5,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                                QPushButton, QFrame, QLabel, QFileDialog, QMessageBox,
                                QColorDialog, QGridLayout)
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QColor, Qt as QtGuiQt
 from pixelsmart.canvas import PixelSmartCanvas
 from pixelsmart.palette import PaletteManager
 from pixelsmart.fileio import ProjectIO
+from pixelsmart.vision import VisionModel
 
 
 class SwatchButton(QPushButton):
@@ -52,6 +53,9 @@ class MainWindow(QMainWindow):
         # Initialize managers
         self.palette_manager = PaletteManager()
         self.file_io = ProjectIO()
+        
+        # Initialize vision model (will be loaded lazily)
+        self.vision_model = VisionModel()
 
         # Central Widget and Main Layout
         central_widget = QWidget()
@@ -118,8 +122,15 @@ class MainWindow(QMainWindow):
         ai_label.setStyleSheet("color: white; font-weight: bold; margin-bottom: 10px;")
         right_layout.addWidget(ai_label)
         
-        right_layout.addWidget(QPushButton("AI Pixelizer"))
-        right_layout.addWidget(QPushButton("Background Remover"))
+        # AI Pixelizer button
+        self.ai_pixelizer_btn = QPushButton("AI Pixelizer")
+        self.ai_pixelizer_btn.clicked.connect(self.run_ai_pixelizer)
+        right_layout.addWidget(self.ai_pixelizer_btn)
+        
+        # Background Remover button
+        self.bg_remover_btn = QPushButton("Background Remover")
+        self.bg_remover_btn.clicked.connect(self.run_background_remover)
+        right_layout.addWidget(self.bg_remover_btn)
         
         right_layout.addSpacing(20)
         
@@ -457,6 +468,93 @@ class MainWindow(QMainWindow):
             self.setCursor(Qt.CrossCursor)
         else:
             self.setCursor(Qt.ArrowCursor)
+    
+    def run_ai_pixelizer(self):
+        """Run AI Pixelizer to convert current canvas or imported image to pixel art"""
+        # Check if vision model is loaded
+        if not self.vision_model.is_loaded():
+            QMessageBox.information(self, "Loading Model", 
+                                  "Loading vision model (first time use may take a moment)...")
+            if not self.vision_model.load():
+                QMessageBox.critical(self, "Error", 
+                                   "Failed to load vision model. Check that transformers and torch are installed.")
+                return
+        
+        # Get current canvas image or prompt for file
+        filepath, _ = QFileDialog.getOpenFileName(
+            self, "Select Image for Pixelization", "", "Images (*.png *.jpg *.jpeg *.bmp);;All Files (*)"
+        )
+        
+        if not filepath:
+            return
+        
+        try:
+            from PIL import Image
+            
+            # Load image
+            image = Image.open(filepath)
+            
+            # Show progress
+            QMessageBox.information(self, "Processing", 
+                                  f"Converting {image.size[0]}x{image.size[1]} image to pixel art...")
+            
+            # Generate pixel art instructions using vision model
+            pixel_art_instructions = self.vision_model.convert_to_pixel_art(image)
+            
+            # For now, show the generated instructions
+            # In a full implementation, this would actually create pixel art
+            result_dialog = QMessageBox(self)
+            result_dialog.setWindowTitle("AI Pixelizer Results")
+            result_dialog.setText(pixel_art_instructions[:500] + "..." if len(pixel_art_instructions) > 500 else pixel_art_instructions)
+            result_dialog.exec()
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to process image: {str(e)}")
+    
+    def run_background_remover(self):
+        """Run background removal on current canvas or imported image"""
+        # Check if vision model is loaded
+        if not self.vision_model.is_loaded():
+            QMessageBox.information(self, "Loading Model", 
+                                  "Loading vision model (first time use may take a moment)...")
+            if not self.vision_model.load():
+                QMessageBox.critical(self, "Error", 
+                                   "Failed to load vision model. Check that transformers and torch are installed.")
+                return
+        
+        # Get current canvas image or prompt for file
+        filepath, _ = QFileDialog.getOpenFileName(
+            self, "Select Image for Background Removal", "", "Images (*.png *.jpg *.jpeg *.bmp);;All Files (*)"
+        )
+        
+        if not filepath:
+            return
+        
+        try:
+            from PIL import Image
+            
+            # Load image
+            image = Image.open(filepath)
+            
+            # Show progress
+            QMessageBox.information(self, "Processing", 
+                                  f"Analyzing {image.size[0]}x{image.size[1]} image for background removal...")
+            
+            # Use vision model to analyze the image
+            analysis = self.vision_model.analyze_image(
+                image, 
+                "Identify the main subject/object in this image and describe what should be kept vs removed as background."
+            )
+            
+            # For now, show the analysis
+            result_dialog = QMessageBox(self)
+            result_dialog.setWindowTitle("Background Removal Analysis")
+            result_dialog.setText(analysis[:500] + "..." if len(analysis) > 500 else analysis)
+            result_dialog.exec()
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to process image: {str(e)}")
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

@@ -17,6 +17,22 @@ if ! command -v python3 &> /dev/null; then
     exit 1
 fi
 
+# Detect GPU support (ROCm vs CUDA)
+USE_ROCM=false
+if command -v rocm-smi &> /dev/null || [ -d "/opt/rocm" ]; then
+    echo "Detected ROCm system - using ROCm requirements"
+    USE_ROCM=true
+else
+    # Check for NVIDIA GPU and nvidia-smi
+    if command -v nvidia-smi &> /dev/null; then
+        echo "Detected CUDA system - using CUDA requirements"
+        USE_ROCM=false
+    else
+        echo "No GPU detected - using CPU-only requirements"
+        USE_ROCM=false
+    fi
+fi
+
 # Create virtual environment if it doesn't exist
 if [ ! -d "$VENV_DIR" ]; then
     echo "Creating virtual environment..."
@@ -29,11 +45,22 @@ fi
 echo "Activating virtual environment..."
 source "$VENV_DIR/bin/activate"
 
-# Install dependencies if requirements.txt exists
+# Install dependencies based on GPU detection
 if [ -f "$SCRIPT_DIR/requirements.txt" ]; then
     echo "Checking/installing dependencies..."
     pip install --upgrade pip > /dev/null 2>&1
-    pip install -r "$SCRIPT_DIR/requirements.txt"
+    
+    if [ "$USE_ROCM" = true ]; then
+        echo "Installing ROCm-compatible packages..."
+        if [ -f "$SCRIPT_DIR/requirements-rocm.txt" ]; then
+            pip install -r "$SCRIPT_DIR/requirements-rocm.txt"
+        else
+            pip install -r "$SCRIPT_DIR/requirements.txt"
+        fi
+    else
+        echo "Installing standard packages..."
+        pip install -r "$SCRIPT_DIR/requirements.txt"
+    fi
 fi
 
 # Launch the application
