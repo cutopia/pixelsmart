@@ -30,6 +30,24 @@ The test suite covers all major components of the Phase 1 implementation:
 - Non-existent file handling
 - State preservation (zoom, offset)
 
+### Vision Model Integration (`tests/test_vision.py`)
+- Module import and initialization
+- Custom model path support
+- Load state validation (`is_loaded()`)
+- Method signature verification
+- Error handling when model not loaded
+- Mock-based testing for all methods:
+  - `generate_text()` with prompts and images
+  - `analyze_image()` with default/custom prompts
+  - `convert_to_pixel_art()` with various resolutions and style hints
+- Edge cases:
+  - Different image formats (RGB, RGBA, grayscale)
+  - Empty prompts
+  - None images
+  - Zero-dimension images
+  - Large/small images
+  - Custom max_new_tokens
+
 ### Integration Tests (`tests/test_integration.py`)
 - Complete user workflows
 - Multiple save/load cycles
@@ -63,10 +81,11 @@ pytest tests/test_canvas.py::test_flood_fill_basic -v
 
 ## Test Results
 
-All 34 tests pass successfully:
+All 63 tests pass successfully:
 - 10 canvas tests
 - 9 palette manager tests  
 - 9 file I/O tests
+- 29 vision model tests (including edge cases and mock-based testing)
 - 5 integration tests
 
 ## Adding New Tests

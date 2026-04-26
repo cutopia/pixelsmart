@@ -107,20 +107,30 @@ class VisionModel:
         input_ids = inputs["input_ids"][0]
         decoded_prompt_text = self.processor.decode(input_ids, skip_special_tokens=True)
         
+        print(f"DEBUG: Calling generate with max_new_tokens={max_new_tokens}...")
+        
         # Generate output with proper stopping tokens
         outputs = self.model.generate(
             **inputs,
             max_new_tokens=max_new_tokens,
-            do_sample=False,  # Use greedy decoding for instruction-following
+            do_sample=False,  # Override model config to use greedy decoding
             eos_token_id=self.processor.tokenizer.eos_token_id,
             pad_token_id=self.processor.tokenizer.pad_token_id
         )
         
+        print(f"DEBUG: Generate returned")
+        
         # Decode the full output (includes prompt + response)
         full_output = self.processor.decode(outputs[0], skip_special_tokens=True)
         
+        print(f"DEBUG vision: full_prompt = '{full_prompt}'")
+        print(f"DEBUG vision: decoded_prompt_text = '{decoded_prompt_text}'")
+        print(f"DEBUG vision: full_output = '{full_output}'")
+        
         # Extract just the new content after the prompt
         response = self._extract_response(full_output, decoded_prompt_text)
+        
+        print(f"DEBUG vision: extracted response = '{response}'")
         
         return response
     
@@ -157,7 +167,16 @@ class VisionModel:
             
             return ""
         
-        # Fallback: return empty string (shouldn't happen normally)
+        # Fallback: If prompt not found, try to extract response differently
+        # This can happen when special tokens like <|image|> decode to empty/newlines
+        # Look for the first line after any newline that doesn't look like a continuation
+        lines = [line.strip() for line in full_output.split('\n') if line.strip()]
+        
+        if len(lines) > 1:
+            # Return the second line (first line is likely the prompt, second is response)
+            return lines[1]
+        
+        # Last resort: return empty string
         return ""
     
     def analyze_image(
@@ -204,9 +223,8 @@ class VisionModel:
         if not self.is_loaded():
             raise RuntimeError("Model not loaded. Call load() first.")
         
-        # Use a simple instruction-style prompt for Gemma 4E4B
-        # The model continues the prompt text, so we keep it short and direct
+        # Use a more explicit instruction that forces generation
         style_desc = f' with {style_hint} style' if style_hint else ''
-        prompt = f"Convert this image to pixel art{style_desc} at {target_resolution[0]}x{target_resolution[1]} resolution."
+        prompt = f"Describe this image in detail. Then provide pixel art instructions for {target_resolution[0]}x{target_resolution[1]} resolution{style_desc}."
         
         return self.generate_text(prompt, image=image)

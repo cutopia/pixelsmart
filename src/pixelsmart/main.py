@@ -496,16 +496,19 @@ class MainWindow(QMainWindow):
             
             # Show progress
             QMessageBox.information(self, "Processing", 
-                                  f"Converting {image.size[0]}x{image.size[1]} image to pixel art...")
+                                  f"Analyzing {image.size[0]}x{image.size[1]} image...")
             
             # Generate pixel art instructions using vision model
+            print(f"DEBUG: About to call convert_to_pixel_art...")
             pixel_art_instructions = self.vision_model.convert_to_pixel_art(image)
+            print(f"DEBUG: Got result from convert_to_pixel_art: '{pixel_art_instructions}'")
             
             # For now, show the generated instructions
             # In a full implementation, this would actually create pixel art
             result_dialog = QMessageBox(self)
             result_dialog.setWindowTitle("AI Pixelizer Results")
-            result_dialog.setText(pixel_art_instructions[:500] + "..." if len(pixel_art_instructions) > 500 else pixel_art_instructions)
+            display_text = pixel_art_instructions[:500] + "..." if len(pixel_art_instructions) > 500 else pixel_art_instructions
+            result_dialog.setText(display_text)
             result_dialog.exec()
             
         except Exception as e:
