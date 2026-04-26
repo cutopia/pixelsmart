@@ -4,13 +4,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                                QPushButton, QFrame, QLabel, QFileDialog, QMessageBox,
-                               QColorDialog, QGridLayout)
+                               QColorDialog, QGridLayout, QProgressDialog)
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QColor, Qt as QtGuiQt
 from pixelsmart.canvas import PixelSmartCanvas
 from pixelsmart.palette import PaletteManager
 from pixelsmart.fileio import ProjectIO
 from pixelsmart.vision import VisionModel
+from pixelsmart.vision_worker import VisionWorker
 
 
 class SwatchButton(QPushButton):
@@ -56,6 +57,9 @@ class MainWindow(QMainWindow):
         
         # Initialize vision model (will be loaded lazily)
         self.vision_model = VisionModel()
+        
+        # Initialize vision worker for async operations
+        self.vision_worker = VisionWorker(self)
 
         # Central Widget and Main Layout
         central_widget = QWidget()
@@ -109,6 +113,12 @@ class MainWindow(QMainWindow):
 
         # Initialize canvas (must be before menu action handlers that use it)
         self.canvas = PixelSmartCanvas()
+        
+        # Connect vision worker signals
+        self.vision_worker.started.connect(self._on_vision_operation_started)
+        self.vision_worker.progress.connect(self._on_vision_progress)
+        self.vision_worker.finished.connect(self._on_vision_operation_finished)
+        self.vision_worker.error.connect(self._on_vision_operation_error)
 
         # Right Sidebar: AI & Palette
         right_sidebar = QFrame()
@@ -469,6 +479,52 @@ class MainWindow(QMainWindow):
         else:
             self.setCursor(Qt.ArrowCursor)
     
+    def _on_vision_operation_started(self):
+        """Called when vision operation starts - show progress dialog"""
+        # Create a modal progress dialog that can be cancelled
+        self._vision_progress_dialog = QProgressDialog(
+            "Processing image... Please wait...", 
+            "Cancel", 
+            0, 
+            100, 
+            self,
+            Qt.WindowTitleHint | Qt.CustomizeWindowHint
+        )
+        self._vision_progress_dialog.setWindowModality(Qt.WindowModal)
+        self._vision_progress_dialog.setWindowTitle("AI Processing")
+        self._vision_progress_dialog.setAutoClose(False)
+        self._vision_progress_dialog.setValue(0)
+        self._vision_progress_dialog.show()
+    
+    def _on_vision_progress(self, message):
+        """Called with progress updates from the vision worker"""
+        if hasattr(self, '_vision_progress_dialog') and self._vision_progress_dialog:
+            self._vision_progress_dialog.setLabelText(message)
+            # Increment progress bar
+            current = self._vision_progress_dialog.value()
+            self._vision_progress_dialog.setValue(min(current + 10, 90))
+    
+    def _on_vision_operation_finished(self, result):
+        """Called when vision operation completes successfully"""
+        if hasattr(self, '_vision_progress_dialog') and self._vision_progress_dialog:
+            self._vision_progress_dialog.close()
+            self._vision_progress_dialog = None
+        
+        # Show the result
+        result_dialog = QMessageBox(self)
+        result_dialog.setWindowTitle("AI Processing Results")
+        display_text = result[:500] + "..." if len(result) > 500 else result
+        result_dialog.setText(display_text)
+        result_dialog.exec()
+    
+    def _on_vision_operation_error(self, error_message):
+        """Called when vision operation encounters an error"""
+        if hasattr(self, '_vision_progress_dialog') and self._vision_progress_dialog:
+            self._vision_progress_dialog.close()
+            self._vision_progress_dialog = None
+        
+        QMessageBox.critical(self, "AI Processing Error", error_message)
+    
     def run_ai_pixelizer(self):
         """Run AI Pixelizer to convert current canvas or imported image to pixel art"""
         # Check if vision model is loaded
@@ -494,22 +550,9 @@ class MainWindow(QMainWindow):
             # Load image
             image = Image.open(filepath)
             
-            # Show progress
-            QMessageBox.information(self, "Processing", 
-                                  f"Analyzing {image.size[0]}x{image.size[1]} image...")
-            
-            # Generate pixel art instructions using vision model
-            print(f"DEBUG: About to call convert_to_pixel_art...")
-            pixel_art_instructions = self.vision_model.convert_to_pixel_art(image)
-            print(f"DEBUG: Got result from convert_to_pixel_art: '{pixel_art_instructions}'")
-            
-            # For now, show the generated instructions
-            # In a full implementation, this would actually create pixel art
-            result_dialog = QMessageBox(self)
-            result_dialog.setWindowTitle("AI Pixelizer Results")
-            display_text = pixel_art_instructions[:500] + "..." if len(pixel_art_instructions) > 500 else pixel_art_instructions
-            result_dialog.setText(display_text)
-            result_dialog.exec()
+            # Set up the worker with the vision model and run the operation
+            self.vision_worker.set_vision_model(self.vision_model)
+            self.vision_worker.run_pixelizer(image)
             
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to process image: {str(e)}")
@@ -539,21 +582,12 @@ class MainWindow(QMainWindow):
             # Load image
             image = Image.open(filepath)
             
-            # Show progress
-            QMessageBox.information(self, "Processing", 
-                                  f"Analyzing {image.size[0]}x{image.size[1]} image for background removal...")
-            
-            # Use vision model to analyze the image
-            analysis = self.vision_model.analyze_image(
-                image, 
+            # Set up the worker with the vision model and run the operation
+            self.vision_worker.set_vision_model(self.vision_model)
+            self.vision_worker.run_background_remover(
+                image,
                 "Identify the main subject/object in this image and describe what should be kept vs removed as background."
             )
-            
-            # For now, show the analysis
-            result_dialog = QMessageBox(self)
-            result_dialog.setWindowTitle("Background Removal Analysis")
-            result_dialog.setText(analysis[:500] + "..." if len(analysis) > 500 else analysis)
-            result_dialog.exec()
             
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to process image: {str(e)}")
